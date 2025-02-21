@@ -28,19 +28,19 @@ func (ms *MemStorage) Update(metricType, name, value string) error {
 	case "gauge":
 		v, err := strconv.ParseFloat(value, 64)
 		if err != nil {
-			return fmt.Errorf("Invalid gauge value")
+			return fmt.Errorf("invalid gauge value")
 		}
 		ms.gauges[name] = gauge(v)
 	case "counter":
 		v, err := strconv.ParseInt(value, 10, 64)
 		if err != nil {
-			return fmt.Errorf("Invalid counter value")
+			return fmt.Errorf("invalid counter value")
 		}
 		ms.counters[name] += counter(v)
 	default:
-		return fmt.Errorf("Invalid metric type")
+		return fmt.Errorf("invalid metric type")
 	}
-	
+
 	return nil
 }
 
@@ -49,7 +49,7 @@ func updateHandler(storage Storage) http.HandlerFunc {
 	return func(res http.ResponseWriter, req *http.Request) {
 		//разрешаем только POST
 		if req.Method != http.MethodPost {
-			http.Error(res, "405 Only POST requests are allowed", http.StatusMethodNotAllowed)
+			http.Error(res, "405 only post requests are allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
@@ -57,7 +57,7 @@ func updateHandler(storage Storage) http.HandlerFunc {
 		slicePath 	:= strings.Split(pathURL, "/")
 
 		if len(slicePath) < 5 {
-			http.Error(res, "404 Not Found", http.StatusNotFound)
+			http.Error(res, "404 not Found", http.StatusNotFound)
 			return
 		}
 
