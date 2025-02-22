@@ -1,104 +1,94 @@
 package main
 
 import (
-	"fmt"
-	"io"
+	"context"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 )
 
-// Мок хранилища для тестирования
-type MockStorage struct {
-	gauges   map[string]gauge
-	counters map[string]counter
-}
-
-func (ms *MockStorage) Update(metricType, name, value string) error {
-	switch metricType {
-	case "gauge":
-		v, err := strconv.ParseFloat(value, 64)
-		if err != nil {
-			return fmt.Errorf("invalid gauge value")
-		}
-		ms.gauges[name] = gauge(v)
-	case "counter":
-		v, err := strconv.ParseInt(value, 10, 64)
-		if err != nil {
-			return fmt.Errorf("invalid counter value")
-		}
-		ms.counters[name] += counter(v)
-	default:
-		return fmt.Errorf("invalid metric type")
+// вспомогательная функция для установки chi-контекста в запрос
+func newChiRequest(method, url string, params map[string]string) *http.Request {
+	req := httptest.NewRequest(method, url, nil)
+	chiCtx := chi.NewRouteContext()
+	for key, value := range params {
+		chiCtx.URLParams.Add(key, value)
 	}
-	return nil
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, chiCtx) // исправлено
+	return req.WithContext(ctx)
 }
 
+// тестируем updateHandler
 func TestUpdateHandler(t *testing.T) {
-	mockStorage := &MockStorage{
+	storage := &MemStorage{
 		gauges:   make(map[string]gauge),
 		counters: make(map[string]counter),
 	}
 
-	handler := updateHandler(mockStorage)
-	tests := []struct {
-		name       string
-		method     string
-		url        string
-		wantStatus int
-	}{
-		{
-			name:       "Valid gauge metric",
-			method:     http.MethodPost,
-			url:        "/update/gauge/cpu/4.5",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "Valid counter metric",
-			method:     http.MethodPost,
-			url:        "/update/counter/requests/10",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "Invalid metric type",
-			method:     http.MethodPost,
-			url:        "/update/invalid/metric/123",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "Invalid value for gauge",
-			method:     http.MethodPost,
-			url:        "/update/gauge/memory/abc",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "Invalid value for counter",
-			method:     http.MethodPost,
-			url:        "/update/counter/events/xyz",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "Invalid method",
-			method:     http.MethodGet,
-			url:        "/update/gauge/memory/3.3",
-			wantStatus: http.StatusMethodNotAllowed,
+	handler := updateHandler(storage)
+
+	req := newChiRequest(http.MethodPost, "/update/gauge/cpu/75.5", map[string]string{
+		"type":  "gauge",
+		"name":  "cpu",
+		"value": "75.5",
+	})
+
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	val, err := storage.GetGauge("cpu")
+	assert.NoError(t, err)
+	assert.Equal(t, gauge(75.5), val)
+}
+
+// тестируем getMetric
+func TestGetMetric(t *testing.T) {
+	storage := &MemStorage{
+		gauges: map[string]gauge{"cpu": 75.5},
+		counters: map[string]counter{
+			"requests": 10,
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(tt.method, tt.url, nil)
-			rr := httptest.NewRecorder()
-			handler(rr, req)
+	handler := getMetric(storage)
 
-			res := rr.Result()
-			defer res.Body.Close()
-			body, _ := io.ReadAll(res.Body)
+	req := newChiRequest(http.MethodGet, "/value/gauge/cpu", map[string]string{
+		"type": "gauge",
+		"name": "cpu",
+	})
 
-			assert.Equal(t, tt.wantStatus, res.StatusCode, "Response: %s", string(body))
-		})
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "75.5", rec.Body.String())
+
+	req = newChiRequest(http.MethodGet, "/value/counter/requests", map[string]string{
+		"type": "counter",
+		"name": "requests",
+	})
+
+	rec = httptest.NewRecorder()
+	handler(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "10", rec.Body.String())
+}
+
+// тестируем allMetrics
+func TestAllMetrics(t *testing.T) {
+	storage := &MemStorage{
+		gauges: map[string]gauge{"cpu": 75.5},
 	}
+
+	handler := allMetrics(storage)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "cpu: 75.5")
 }

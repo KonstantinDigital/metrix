@@ -15,17 +15,17 @@ const (
 	reportInterval = 10 * time.Second
 )
 
-//виды метрик - измеренное значение (gauge) и счетчик (counter)
-type gauge 	 float64
+// виды метрик - измеренное значение (gauge) и счетчик (counter)
+type gauge float64
 type counter int64
 
-//структура хранения метрик
+// структура хранения метрик
 type Metrics struct {
 	gauges   map[string]gauge
 	counters map[string]counter
 }
 
-//создает новый объект с метриками
+// создает новый объект с метриками
 func NewMetrics() *Metrics {
 	return &Metrics{
 		gauges:   make(map[string]gauge),
@@ -36,7 +36,7 @@ func NewMetrics() *Metrics {
 func (m *Metrics) updateMetrics() {
 	memStats := &runtime.MemStats{}
 	runtime.ReadMemStats(memStats)
-	
+
 	m.gauges = map[string]gauge{
 		"Alloc":         gauge(memStats.Alloc),
 		"BuckHashSys":   gauge(memStats.BuckHashSys),
@@ -69,7 +69,6 @@ func (m *Metrics) updateMetrics() {
 	}
 
 	m.counters["PollCount"]++
-	fmt.Println(m)
 }
 
 func (m *Metrics) sendMetrics() {
