@@ -7,22 +7,22 @@ import (
 	"strings"
 )
 
-//виды метрик - измеренное значение (gauge) и счетчик (counter)
-type gauge 	 float64
+// виды метрик - измеренное значение (gauge) и счетчик (counter)
+type gauge float64
 type counter int64
 
-//интерфейс хранилища метрик
+// интерфейс хранилища метрик
 type Storage interface {
 	Update(metricType, name, value string) error
 }
 
-//хранилище метрик
+// хранилище метрик
 type MemStorage struct {
 	gauges   map[string]gauge
 	counters map[string]counter
 }
 
-//реализация метода Update интерфейса Storage
+// реализация метода Update интерфейса Storage
 func (ms *MemStorage) Update(metricType, name, value string) error {
 	switch metricType {
 	case "gauge":
@@ -53,16 +53,16 @@ func updateHandler(storage Storage) http.HandlerFunc {
 			return
 		}
 
-		pathURL 	:= strings.TrimSuffix(req.URL.Path, "/") 
-		slicePath 	:= strings.Split(pathURL, "/")
+		pathURL := strings.TrimSuffix(req.URL.Path, "/")
+		slicePath := strings.Split(pathURL, "/")
 
 		if len(slicePath) < 5 {
 			http.Error(res, "404 not Found", http.StatusNotFound)
 			return
 		}
 
-		metricType 	:= slicePath[2]
-		metricName 	:= slicePath[3]
+		metricType := slicePath[2]
+		metricName := slicePath[3]
 		metricValue := slicePath[4]
 
 		err := storage.Update(metricType, metricName, metricValue)
@@ -74,7 +74,6 @@ func updateHandler(storage Storage) http.HandlerFunc {
 		res.WriteHeader(http.StatusOK)
 	}
 }
-
 
 func main() {
 	var storage Storage = &MemStorage{
