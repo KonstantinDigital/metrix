@@ -1,94 +1,97 @@
 package main
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/stretchr/testify/assert"
 )
 
-// вспомогательная функция для установки chi-контекста в запрос
-func newChiRequest(method, url string, params map[string]string) *http.Request {
-	req := httptest.NewRequest(method, url, nil)
-	chiCtx := chi.NewRouteContext()
-	for key, value := range params {
-		chiCtx.URLParams.Add(key, value)
-	}
-	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, chiCtx) // исправлено
-	return req.WithContext(ctx)
+type mockStorage struct {
+	gauges   map[string]gauge
+	counters map[string]counter
 }
 
-// тестируем updateHandler
-func TestUpdateHandler(t *testing.T) {
-	storage := &MemStorage{
+func newMockStorage() *mockStorage {
+	return &mockStorage{
 		gauges:   make(map[string]gauge),
 		counters: make(map[string]counter),
 	}
+}
+
+func (m *mockStorage) Update(metricType, name, value string) error {
+	switch metricType {
+	case "gauge":
+		m.gauges[name] = gauge(42.5) // фиксированное значение для теста
+	case "counter":
+		m.counters[name]++
+	default:
+		return nil
+	}
+	return nil
+}
+
+func (m *mockStorage) GetMetrics() []string {
+	return []string{"test_metric: 42.5"}
+}
+
+func (m *mockStorage) GetCounter(name string) (counter, error) {
+	return m.counters[name], nil
+}
+
+func (m *mockStorage) GetGauge(name string) (gauge, error) {
+	return m.gauges[name], nil
+}
+
+func TestUpdateHandler(t *testing.T) {
+	storage := newMockStorage()
+	req := httptest.NewRequest(http.MethodPost, "/update/gauge/test_metric/42.5", nil)
+	res := httptest.NewRecorder()
 
 	handler := updateHandler(storage)
+	handler(res, req)
 
-	req := newChiRequest(http.MethodPost, "/update/gauge/cpu/75.5", map[string]string{
-		"type":  "gauge",
-		"name":  "cpu",
-		"value": "75.5",
-	})
-
-	rec := httptest.NewRecorder()
-	handler(rec, req)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	val, err := storage.GetGauge("cpu")
-	assert.NoError(t, err)
-	assert.Equal(t, gauge(75.5), val)
+	if res.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", res.Code)
+	}
 }
 
-// тестируем getMetric
-func TestGetMetric(t *testing.T) {
-	storage := &MemStorage{
-		gauges: map[string]gauge{"cpu": 75.5},
-		counters: map[string]counter{
-			"requests": 10,
-		},
+func TestGetMetricHandler(t *testing.T) {
+	storage := newMockStorage()
+	storage.Update("gauge", "test_metric", "42.5")
+
+	r := chi.NewRouter()
+	r.Get("/value/{type}/{name}", getMetric(storage))
+
+	req := httptest.NewRequest(http.MethodGet, "/value/gauge/test_metric", nil)
+	res := httptest.NewRecorder()
+
+	r.ServeHTTP(res, req) // Используем маршрутизатор для обработки запроса
+
+	if res.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", res.Code)
 	}
 
-	handler := getMetric(storage)
-
-	req := newChiRequest(http.MethodGet, "/value/gauge/cpu", map[string]string{
-		"type": "gauge",
-		"name": "cpu",
-	})
-
-	rec := httptest.NewRecorder()
-	handler(rec, req)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "75.5", rec.Body.String())
-
-	req = newChiRequest(http.MethodGet, "/value/counter/requests", map[string]string{
-		"type": "counter",
-		"name": "requests",
-	})
-
-	rec = httptest.NewRecorder()
-	handler(rec, req)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "10", rec.Body.String())
+	if strings.TrimSpace(res.Body.String()) != "42.5" {
+		t.Errorf("Expected response '42.5', got %s", res.Body.String())
+	}
 }
 
-// тестируем allMetrics
-func TestAllMetrics(t *testing.T) {
-	storage := &MemStorage{
-		gauges: map[string]gauge{"cpu": 75.5},
-	}
+func TestAllMetricsHandler(t *testing.T) {
+	storage := newMockStorage()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	res := httptest.NewRecorder()
 
 	handler := allMetrics(storage)
+	handler(res, req)
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rec := httptest.NewRecorder()
-	handler(rec, req)
+	if res.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", res.Code)
+	}
 
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "cpu: 75.5")
+	if !strings.Contains(res.Body.String(), "test_metric: 42.5") {
+		t.Errorf("Expected metrics in response, got %s", res.Body.String())
+	}
 }

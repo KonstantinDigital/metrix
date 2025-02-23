@@ -1,18 +1,14 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"math/rand"
 	"net/http"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
-)
-
-const (
-	serverURL      = "http://localhost:8080/update/"
-	pollInterval   = 2 * time.Second
-	reportInterval = 10 * time.Second
 )
 
 // виды метрик - измеренное значение (gauge) и счетчик (counter)
@@ -71,8 +67,11 @@ func (m *Metrics) updateMetrics() {
 	m.counters["PollCount"]++
 }
 
-func (m *Metrics) sendMetrics() {
+func (m *Metrics) sendMetrics(serverURL string) {
 	client := &http.Client{}
+	prefix := "http://"
+	serverURL = prefix + serverURL
+	serverURL += "/update/"
 	for name, value := range m.gauges {
 		url := serverURL + "gauge/" + name + "/" + strconv.FormatFloat(float64(value), 'f', -1, 64)
 		resp, err := client.Post(url, "text/plain", nil)
@@ -94,11 +93,11 @@ func (m *Metrics) sendMetrics() {
 	}
 }
 
-func (m *Metrics) Run() {
+func (m *Metrics) Run(serverURL string, pi time.Duration, ri time.Duration) {
 	metrics := NewMetrics()
 
-	tickerPoll := time.NewTicker(pollInterval)
-	tickerReport := time.NewTicker(reportInterval)
+	tickerPoll := time.NewTicker(pi)
+	tickerReport := time.NewTicker(ri)
 
 	defer tickerPoll.Stop()
 	defer tickerReport.Stop()
@@ -108,12 +107,34 @@ func (m *Metrics) Run() {
 		case <-tickerPoll.C:
 			metrics.updateMetrics()
 		case <-tickerReport.C:
-			metrics.sendMetrics()
+			metrics.sendMetrics(serverURL)
 		}
 	}
 }
 
+func CheckAddr(a string) error {
+	hp := strings.Split(a, ":")
+	if len(hp) != 2 {
+		return fmt.Errorf("address must be <host>:<port>")
+	}
+	return nil
+}
+
 func main() {
+	serverURL := flag.String("a", "localhost:8080", "Net address host:port")
+	pollInterval := flag.Int("p", 2, "Poll interval in seconds")
+	reportInterval := flag.Int("r", 10, "Report interval in seconds")
+	flag.Parse()
+
+	err := CheckAddr(*serverURL)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	pi := time.Duration(*pollInterval) * time.Second
+	ri := time.Duration(*reportInterval) * time.Second
+
 	agent := Metrics{}
-	agent.Run()
+	agent.Run(*serverURL, pi, ri)
 }

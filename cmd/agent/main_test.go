@@ -5,54 +5,63 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
-func TestUpdateMetrics(t *testing.T) {
-	metrics := NewMetrics()
-	metrics.updateMetrics()
-
-	if len(metrics.gauges) == 0 {
-		t.Errorf("Expected gauges to be populated, but got empty map")
+func TestCheckAddr(t *testing.T) {
+	tests := []struct {
+		addr    string
+		wantErr bool
+	}{
+		{"localhost:8080", false},
+		{"127.0.0.1:9000", false},
+		{"example.com:80", false},
+		{"invalid_address", true},
 	}
 
-	if metrics.counters["PollCount"] == 0 {
-		t.Errorf("Expected PollCount to be incremented, but got 0")
+	for _, tt := range tests {
+		err := CheckAddr(tt.addr)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("CheckAddr(%q) error = %v, wantErr %v", tt.addr, err, tt.wantErr)
+		}
+	}
+}
+
+func TestUpdateMetrics(t *testing.T) {
+	m := NewMetrics()
+	m.updateMetrics()
+
+	if len(m.gauges) == 0 {
+		t.Errorf("Expected gauges to be populated, got empty")
+	}
+
+	if m.counters["PollCount"] != 1 {
+		t.Errorf("Expected PollCount to be 1, got %d", m.counters["PollCount"])
 	}
 }
 
 func TestSendMetrics(t *testing.T) {
-	metrics := NewMetrics()
-	metrics.updateMetrics()
+	m := NewMetrics()
+	m.updateMetrics()
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, "/update/") {
-			t.Errorf("Unexpected request path: %s", r.URL.Path)
+			t.Errorf("Unexpected URL path: %s", r.URL.Path)
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
 
-	metrics.sendMetrics()
+	m.sendMetrics(strings.TrimPrefix(ts.URL, "http://"))
 }
 
-func BenchmarkUpdateMetrics(b *testing.B) {
-	metrics := NewMetrics()
-	for i := 0; i < b.N; i++ {
-		metrics.updateMetrics()
-	}
-}
-
-func BenchmarkSendMetrics(b *testing.B) {
+func TestRun(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
 
-	metrics := NewMetrics()
-	metrics.updateMetrics()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		metrics.sendMetrics()
-	}
+	agent := Metrics{}
+	go agent.Run(strings.TrimPrefix(ts.URL, "http://"), time.Millisecond*100, time.Millisecond*200)
+	time.Sleep(time.Millisecond * 500)
 }

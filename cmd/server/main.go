@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -108,6 +109,7 @@ func getMetric(s Storage) http.HandlerFunc {
 				http.Error(res, err.Error(), http.StatusNotFound)
 				return
 			}
+			res.WriteHeader(http.StatusOK)
 			res.Write([]byte(strconv.FormatFloat(float64(val), 'f', -1, 64)))
 		case "counter":
 			val, err := s.GetCounter(n)
@@ -115,6 +117,7 @@ func getMetric(s Storage) http.HandlerFunc {
 				http.Error(res, err.Error(), http.StatusNotFound)
 				return
 			}
+			res.WriteHeader(http.StatusOK)
 			res.Write([]byte(strconv.FormatInt(int64(val), 10)))
 		default:
 			http.Error(res, "invalid metric type", http.StatusNotFound)
@@ -154,11 +157,27 @@ func HandleRouter(s Storage) chi.Router {
 	return r
 }
 
+func CheckAddr(a string) error {
+	hp := strings.Split(a, ":")
+	if len(hp) != 2 {
+		return fmt.Errorf("address must be <host>:<port>")
+	}
+	return nil
+}
+
 func main() {
 	var storage Storage = &MemStorage{
 		gauges:   make(map[string]gauge),
 		counters: make(map[string]counter),
 	}
 
-	log.Fatal(http.ListenAndServe(":8080", HandleRouter(storage)))
+	netAddr := flag.String("a", "localhost:8080", "Net address host:port")
+	flag.Parse()
+	err := CheckAddr(*netAddr)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	log.Fatal(http.ListenAndServe(*netAddr, HandleRouter(storage)))
 }
