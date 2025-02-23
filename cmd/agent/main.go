@@ -3,12 +3,15 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"math/rand"
 	"net/http"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/caarlos0/env/v9"
 )
 
 // виды метрик - измеренное значение (gauge) и счетчик (counter)
@@ -19,6 +22,13 @@ type counter int64
 type Metrics struct {
 	gauges   map[string]gauge
 	counters map[string]counter
+}
+
+// переменные окружения
+type Config struct {
+	Address        *string `env:"ADDRESS"`
+	PollInterval   *int    `env:"POLL_INTERVAL"`
+	ReportInterval *int    `env:"REPORT_INTERVAL"`
 }
 
 // создает новый объект с метриками
@@ -114,9 +124,23 @@ func (m *Metrics) Run(serverURL string, pi time.Duration, ri time.Duration) {
 
 func CheckAddr(a string) error {
 	hp := strings.Split(a, ":")
+
 	if len(hp) != 2 {
 		return fmt.Errorf("address must be <host>:<port>")
 	}
+
+	if hp[0] == "" {
+		return fmt.Errorf("missing host")
+	}
+	if hp[1] == "" {
+		return fmt.Errorf("missing port")
+	}
+
+	_, intErr := strconv.Atoi(hp[1])
+	if intErr != nil {
+		return fmt.Errorf("invalid port")
+	}
+
 	return nil
 }
 
@@ -126,14 +150,31 @@ func main() {
 	reportInterval := flag.Int("r", 10, "Report interval in seconds")
 	flag.Parse()
 
-	err := CheckAddr(*serverURL)
-	if err != nil {
-		fmt.Println(err)
-		return
+	var cfg Config
+	envErr := env.Parse(&cfg)
+	if envErr != nil {
+		log.Fatal(envErr)
+	}
+
+	if cfg.Address != nil {
+		serverURL = cfg.Address
+	}
+
+	if cfg.PollInterval != nil {
+		pollInterval = cfg.PollInterval
+	}
+
+	if cfg.ReportInterval != nil {
+		reportInterval = cfg.ReportInterval
 	}
 
 	pi := time.Duration(*pollInterval) * time.Second
 	ri := time.Duration(*reportInterval) * time.Second
+
+	err := CheckAddr(*serverURL)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	agent := Metrics{}
 	agent.Run(*serverURL, pi, ri)

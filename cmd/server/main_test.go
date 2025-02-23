@@ -45,6 +45,33 @@ func (m *mockStorage) GetGauge(name string) (gauge, error) {
 	return m.gauges[name], nil
 }
 
+func TestMemStorageUpdate(t *testing.T) {
+	storage := &MemStorage{
+		gauges:   make(map[string]gauge),
+		counters: make(map[string]counter),
+	}
+
+	tests := []struct {
+		metricType string
+		name       string
+		value      string
+		expects    bool
+	}{
+		{"gauge", "TestGauge", "42.5", false},
+		{"counter", "TestCounter", "10", false},
+		{"gauge", "InvalidGauge", "abc", true},
+		{"counter", "InvalidCounter", "xyz", true},
+		{"unknown", "Metric", "10", true},
+	}
+
+	for _, tt := range tests {
+		err := storage.Update(tt.metricType, tt.name, tt.value)
+		if (err != nil) != tt.expects {
+			t.Errorf("Update(%s, %s, %s) error = %v, expects %v", tt.metricType, tt.name, tt.value, err, tt.expects)
+		}
+	}
+}
+
 func TestUpdateHandler(t *testing.T) {
 	storage := newMockStorage()
 	req := httptest.NewRequest(http.MethodPost, "/update/gauge/test_metric/42.5", nil)
@@ -93,5 +120,24 @@ func TestAllMetricsHandler(t *testing.T) {
 
 	if !strings.Contains(res.Body.String(), "test_metric: 42.5") {
 		t.Errorf("Expected metrics in response, got %s", res.Body.String())
+	}
+}
+
+func TestCheckAddr(t *testing.T) {
+	tests := []struct {
+		addr    string
+		expects bool
+	}{
+		{"localhost:8080", false},
+		{":8080", true},
+		{"localhost:", true},
+		{"localhost", true},
+	}
+
+	for _, tt := range tests {
+		err := CheckAddr(tt.addr)
+		if (err != nil) != tt.expects {
+			t.Errorf("CheckAddr(%s) error = %v, expects %v", tt.addr, err, tt.expects)
+		}
 	}
 }

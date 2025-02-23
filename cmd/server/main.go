@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/caarlos0/env/v9"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -27,6 +28,11 @@ type Storage interface {
 type MemStorage struct {
 	gauges   map[string]gauge
 	counters map[string]counter
+}
+
+// переменная окружения ADDRESS
+type Config struct {
+	Address string `env:"ADDRESS"`
 }
 
 // возвращаем значение по типу и имени метрики
@@ -159,9 +165,23 @@ func HandleRouter(s Storage) chi.Router {
 
 func CheckAddr(a string) error {
 	hp := strings.Split(a, ":")
+
 	if len(hp) != 2 {
 		return fmt.Errorf("address must be <host>:<port>")
 	}
+
+	if hp[0] == "" {
+		return fmt.Errorf("missing host")
+	}
+	if hp[1] == "" {
+		return fmt.Errorf("missing port")
+	}
+
+	_, intErr := strconv.Atoi(hp[1])
+	if intErr != nil {
+		return fmt.Errorf("invalid port")
+	}
+
 	return nil
 }
 
@@ -171,8 +191,20 @@ func main() {
 		counters: make(map[string]counter),
 	}
 
+	var cfg Config
+
 	netAddr := flag.String("a", "localhost:8080", "Net address host:port")
 	flag.Parse()
+
+	envErr := env.Parse(&cfg)
+	if envErr != nil {
+		log.Fatal(envErr)
+	}
+
+	if cfg.Address != "" {
+		netAddr = &cfg.Address
+	}
+
 	err := CheckAddr(*netAddr)
 	if err != nil {
 		fmt.Println(err)

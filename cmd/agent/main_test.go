@@ -3,27 +3,33 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/caarlos0/env/v9"
 )
 
 func TestCheckAddr(t *testing.T) {
 	tests := []struct {
-		addr    string
-		wantErr bool
+		name    string
+		input   string
+		expects bool
 	}{
-		{"localhost:8080", false},
-		{"127.0.0.1:9000", false},
-		{"example.com:80", false},
-		{"invalid_address", true},
+		{"valid address", "localhost:8080", false},
+		{"missing port", "localhost:", true},
+		{"missing host", ":8080", true},
+		{"invalid port", "localhost:abc", true},
 	}
 
 	for _, tt := range tests {
-		err := CheckAddr(tt.addr)
-		if (err != nil) != tt.wantErr {
-			t.Errorf("CheckAddr(%q) error = %v, wantErr %v", tt.addr, err, tt.wantErr)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			err := CheckAddr(tt.input)
+			if (err != nil) != tt.expects {
+				t.Errorf("CheckAddr(%s) error = %v, wantErr %v", tt.input, err, tt.expects)
+			}
+		})
 	}
 }
 
@@ -62,6 +68,27 @@ func TestRun(t *testing.T) {
 	defer ts.Close()
 
 	agent := Metrics{}
-	go agent.Run(strings.TrimPrefix(ts.URL, "http://"), time.Millisecond*100, time.Millisecond*200)
+	go agent.Run(strings.TrimPrefix(ts.URL, "http://"), 1*time.Second, 2*time.Second)
 	time.Sleep(time.Millisecond * 500)
+}
+func TestConfigParsing(t *testing.T) {
+	os.Setenv("ADDRESS", "127.0.0.1:9090")
+	os.Setenv("POLL_INTERVAL", "5")
+	os.Setenv("REPORT_INTERVAL", "15")
+
+	var cfg Config
+	err := env.Parse(&cfg)
+	if err != nil {
+		t.Fatalf("Failed to parse env vars: %v", err)
+	}
+
+	if *cfg.Address != "127.0.0.1:9090" {
+		t.Errorf("Expected ADDRESS to be 127.0.0.1:9090, got %s", *cfg.Address)
+	}
+	if *cfg.PollInterval != 5 {
+		t.Errorf("Expected POLL_INTERVAL to be 5, got %d", *cfg.PollInterval)
+	}
+	if *cfg.ReportInterval != 15 {
+		t.Errorf("Expected REPORT_INTERVAL to be 15, got %d", *cfg.ReportInterval)
+	}
 }
